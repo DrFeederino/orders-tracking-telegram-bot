@@ -1,9 +1,11 @@
 package com.drfeederino.telegramwebchecker.services;
 
-import com.drfeederino.telegramwebchecker.entities.BotState;
 import com.drfeederino.telegramwebchecker.entities.TelegramUser;
 import com.drfeederino.telegramwebchecker.entities.TrackingCode;
-import com.drfeederino.telegramwebchecker.entities.TrackingProvider;
+import com.drfeederino.telegramwebchecker.enums.BotState;
+import com.drfeederino.telegramwebchecker.enums.TrackingProvider;
+import com.drfeederino.telegramwebchecker.enums.UserStatus;
+import com.drfeederino.telegramwebchecker.pojo.RowData;
 import com.drfeederino.telegramwebchecker.repository.TelegramUserRepository;
 import com.drfeederino.telegramwebchecker.repository.TrackingCodeRepository;
 import lombok.SneakyThrows;
@@ -14,37 +16,34 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 import javax.annotation.PostConstruct;
 import javax.transaction.Transactional;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-import static com.drfeederino.telegramwebchecker.entities.BotMessages.*;
-import static com.drfeederino.telegramwebchecker.entities.TrackingProvider.*;
-import static com.drfeederino.telegramwebchecker.entities.UserStatus.*;
+import static com.drfeederino.telegramwebchecker.constants.BotMessages.*;
+import static com.drfeederino.telegramwebchecker.constants.Patterns.*;
+import static com.drfeederino.telegramwebchecker.enums.TrackingProvider.*;
+import static com.drfeederino.telegramwebchecker.enums.UserStatus.*;
 
 @Service
 @Slf4j
 public class WebCheckerBot extends TelegramLongPollingBot {
 
-    private static final Pattern INTERNATIONAL_POST_STANDARD_TRACK_NUMBER = Pattern.compile("[A-Za-z]{2}[0-9]{9}[A-Za-z]{2}");
-    private static final Pattern SAMSUNG_ORDER_NUMBER = Pattern.compile("RU[0-9]{6}-[0-9]{8}");
-    private static final Pattern QWINTRY_TRACK_PATTERN = Pattern.compile("QR[0-9]{6,12}");
-    private static final Pattern CSE_TRACK_PATTERN = Pattern.compile("[0-9]{3}-[0-9]{6,8}-[0-9]{6,8}");
-
-    private final TelegramUserRepository userRepository;
-    private final TrackingCodeRepository trackingRepository;
-
     private static final Set<TrackingProvider> REQUIRE_ADDITIONAL_INFO = Set.of(SAMSUNG);
 
+    private final TrackingCodeRepository trackingRepository;
+    private final TelegramUserRepository userRepository;
 
     @Value("${BOT_NAME}")
     private String botName;
@@ -86,14 +85,39 @@ public class WebCheckerBot extends TelegramLongPollingBot {
     @SneakyThrows
     @Override
     public void onUpdateReceived(Update update) {
-        log.info("{}: received update - {}.", getClass().getSimpleName(), update);
         if (update.hasMessage() && BotState.contains(update.getMessage().getText())) {
             handleUserState(update);
         } else if (update.hasMessage()) {
             handleUserMessageForStatus(update);
+        } else if (update.hasCallbackQuery()) {
+            handleCallbackQuery(update);
         } else {
-            execute(buildMessage(update.getMessage().getChatId(), ENCOURAGE_COMMAND_USAGE));
+            execute(buildMessage(update.getMessage().getChatId(), USE_COMMANDS_DUMMY));
         }
+    }
+
+    private void handleCallbackQuery(Update update) {
+        CallbackQuery callbackQuery = update.getCallbackQuery();
+        List<String> values = List.of(callbackQuery.getData().split("/"));
+        UserStatus status = UserStatus.getEnum(values.get(0));
+        switch(status) {
+            case SELECTING_PROVIDER:
+                setTrackingProvider(callbackQuery.getMessage().getChatId(), values.get(1), values.get(2));
+                break;
+        }
+    }
+
+    private void setTrackingProvider(Long chatId, String trackingId, String provider) {
+        Optional<TrackingCode> code = trackingRepository.findById(Long.parseLong(trackingId));
+        code.ifPresent(trackingCode -> {
+            trackingCode.setProvider(TrackingProvider.getEnum(provider));
+            trackingRepository.save(trackingCode);
+            try {
+
+                execute(buildMessage(chatId, DONE_DID_IT));
+            } catch (TelegramApiException e) {
+            }
+        });
     }
 
     @SneakyThrows
@@ -119,7 +143,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                 }
             }
         } else {
-            execute(buildMessage(update.getMessage().getChatId(), ENCOURAGE_COMMAND_USAGE));
+            execute(buildMessage(update.getMessage().getChatId(), USE_COMMANDS_DUMMY));
         }
     }
 
@@ -134,7 +158,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                         userRepository.save(user);
                     });
         });
-        execute(buildMessage(chatId, SUCCESSFULLY_ADDED));
+        execute(buildMessage(chatId, DONE_DID_IT));
     }
 
     @SneakyThrows
@@ -144,7 +168,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
         }
         if (message.contains("all")) {
             trackingRepository.deleteAllByTelegramUserId(chatId);
-            execute(buildMessage(chatId, SUCCESSFULLY_ADDED));
+            execute(buildMessage(chatId, DONE_DID_IT));
         } else {
             trackingRepository.findAllByTelegramUserId(chatId)
                     .stream()
@@ -157,7 +181,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                             userRepository.save(user);
                         });
                         try {
-                            execute(buildMessage(chatId, SUCCESSFULLY_ADDED));
+                            execute(buildMessage(chatId, DONE_DID_IT));
                         } catch (TelegramApiException e) {
                             e.printStackTrace();
                         }
@@ -182,10 +206,10 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                 user.setStatus(null);
                 userRepository.save(user);
             });
-            execute(buildMessage(chatId, SUCCESSFULLY_ADDED));
+            execute(buildMessage(chatId, DONE_DID_IT));
         } else {
-            execute(buildMessage(chatId, UNKNOWN_PROVIDER));
-            sendAvailableProviders(chatId);
+            //execute(buildMessage(chatId, I_DONT_SPEAK_THIS_PROVIDER));
+            //sendAvailableProviders(chatId, );
         }
     }
 
@@ -198,12 +222,16 @@ public class WebCheckerBot extends TelegramLongPollingBot {
         switch (parseMessage(update.getMessage().getText())) {
             case START: {
                 getUserOrCreate(message.getChatId());
-                execute(buildMessage(message.getChatId(), String.format(WELCOME_MESSAGE, update.getMessage().getChat().getUserName())));
+                execute(buildMessage(message.getChatId(), String.format(HIYA_THERE, update.getMessage().getChat().getUserName())));
                 break;
             }
             case ADD: {
-                execute(buildMessage(message.getChatId(), ENCOURAGEMENT_ADD_CODES));
+                execute(buildMessage(message.getChatId(), ADD_TRACK_CODE));
                 updateAddTrackCode(message.getChatId());
+                break;
+            }
+            case CHANGE: {
+                updateTrackingCodes(message.getChatId());
                 break;
             }
             case STATUS:
@@ -216,11 +244,32 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                 break;
             }
             case DELETE: {
-                execute(buildMessage(message.getChatId(), SELECT_TRACKING_DELETE));
+                execute(buildMessage(message.getChatId(), WHAT_TRACK_CODE_DELETE));
                 deleteTracking(message.getChatId());
                 break;
             }
         }
+    }
+
+    @SneakyThrows
+    private void updateTrackingCodes(Long chatId) {
+        List<TrackingCode> userCodes = trackingRepository.findAllByTelegramUserId(chatId);
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        var buttons = userCodes.stream().map(code -> {
+                    List<InlineKeyboardButton> row = new ArrayList<>();
+                    InlineKeyboardButton button = new InlineKeyboardButton();
+                    button.setText(code.getCode());
+                    button.setCallbackData(code.getId() + "");
+                    row.add(button);
+                    return row;
+                })
+                .collect(Collectors.toList());
+        keyboard.setKeyboard(buttons);
+        SendMessage response = new SendMessage();
+        response.setChatId(chatId + "");
+        response.setText(SELECT_TO_CHANGE);
+        response.setReplyMarkup(keyboard);
+        execute(response);
     }
 
     @SneakyThrows
@@ -248,7 +297,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
                     .append("\n");
         }
         execute(buildMessage(chatId, message.toString()));
-        execute(buildMessage(chatId, ADDITIONAL_ALL_DELETE_OPTION));
+        execute(buildMessage(chatId, DELETE_ALL_OPTION));
     }
 
     private void updateAddTrackCode(Long chatId) {
@@ -269,14 +318,14 @@ public class WebCheckerBot extends TelegramLongPollingBot {
             String lastStatus = trackingCode.getLastStatus();
             execute(buildMessage(chatId,
                     String.format(
-                            LAST_STATUS_FORMAT,
+                            LATEST_STATUS_FORMAT,
                             trackingCode.getCode(),
-                            trackingCode.getProvider().getProvider(),
-                            lastStatus != null ? lastStatus : EMPTY_LAST_STATUS
+                            trackingCode.getProvider() == null ? "????" : trackingCode.getProvider().getProvider(),
+                            lastStatus != null ? lastStatus : UNKNOWN_STATUS
                     )
             ));
         }
-        execute(buildMessage(chatId, STATUS_UNKNOWN_TIP));
+        execute(buildMessage(chatId, UNKNOWN_TIP));
     }
 
     private void deleteUser(Long chatId) {
@@ -314,6 +363,25 @@ public class WebCheckerBot extends TelegramLongPollingBot {
         return sendMessage;
     }
 
+    private SendMessage buildMessage(Long id, String text, List<RowData> values) {
+        SendMessage sendMessage = new SendMessage(); // Create a SendMessage object with mandatory fields
+        sendMessage.setChatId(id.toString());
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (RowData data : values) {
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText(data.getValue());
+            button.setCallbackData(data.getCallbackData());
+            row.add(button);
+            rows.add(row);
+        }
+        keyboard.setKeyboard(rows);
+        sendMessage.setReplyMarkup(keyboard);
+        sendMessage.setText(text);
+        return sendMessage;
+    }
+
     @SneakyThrows
     private void handleAddingTracking(Long id, String trackCode) {
         Matcher postMatcher = INTERNATIONAL_POST_STANDARD_TRACK_NUMBER.matcher(trackCode);
@@ -321,7 +389,7 @@ public class WebCheckerBot extends TelegramLongPollingBot {
         Matcher qwintryMatcher = QWINTRY_TRACK_PATTERN.matcher(trackCode);
         Matcher cseMatcher = CSE_TRACK_PATTERN.matcher(trackCode);
         if (!postMatcher.matches() && !samsungMatcher.matches() && !qwintryMatcher.matches() && !cseMatcher.matches()) {
-            execute(buildMessage(id, FAIL_CODE_ADDED));
+            execute(buildMessage(id, TRACK_CODE_NOT_SUPPORTED));
             return;
         }
         userRepository.findById(id).ifPresent(user -> {
@@ -344,15 +412,14 @@ public class WebCheckerBot extends TelegramLongPollingBot {
             userRepository.save(user);
             trackingRepository.save(trackingCode);
             sendUserAddingConfirmation(trackingCode);
-            sendUserAddingConfirmation(trackingCode);
         });
     }
 
     @SneakyThrows
     private void sendUserAddingConfirmation(TrackingCode trackingCode) {
-        execute(buildMessage(trackingCode.getTelegramUser().getId(), SUCCESSFULLY_ADDED));
+        execute(buildMessage(trackingCode.getTelegramUser().getId(), DONE_DID_IT));
         if (trackingCode.getProvider() == null) {
-            sendAvailableProviders(trackingCode.getTelegramUser().getId());
+            sendAvailableProviders(trackingCode.getTelegramUser().getId(), trackingCode.getId());
         }
         if (trackingCode.getProvider() != null && REQUIRE_ADDITIONAL_INFO.contains(trackingCode.getProvider())) {
             execute(buildMessage(trackingCode.getTelegramUser().getId(), NEED_EMAIL));
@@ -360,15 +427,16 @@ public class WebCheckerBot extends TelegramLongPollingBot {
     }
 
     @SneakyThrows
-    private void sendAvailableProviders(Long id) {
-        execute(buildMessage(id, SELECT_TRACKING_PROVIDER));
+    private void sendAvailableProviders(Long userId, Long codeId) {
         TrackingProvider[] values = TrackingProvider.values();
-        StringBuilder message = new StringBuilder();
-        for (int i = 0; i < values.length; i++) {
-            message.append(values[i].getProvider())
-                    .append("\n");
-        }
-        execute(buildMessage(id, message.toString()));
+
+        List<RowData> providers = Arrays.stream(values).map(code -> RowData.builder()
+                        .value(code.getProvider())
+                        .callbackData(String.format("%s/%s/%s", SELECTING_PROVIDER, codeId, code.getProvider()))
+                        .build())
+                .collect(Collectors.toList());
+
+        execute(buildMessage(userId, WHAT_TRACKING_PROVIDER, providers));
     }
 
 }

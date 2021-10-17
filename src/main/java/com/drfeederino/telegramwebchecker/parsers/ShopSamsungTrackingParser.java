@@ -11,33 +11,32 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
-import static com.drfeederino.telegramwebchecker.entities.TrackingProvider.CSE;
-import static com.drfeederino.telegramwebchecker.entities.TrackingProvider.SAMSUNG;
+import static com.drfeederino.telegramwebchecker.enums.TrackingProvider.CSE;
+import static com.drfeederino.telegramwebchecker.enums.TrackingProvider.SAMSUNG;
 import static org.openqa.selenium.support.ui.ExpectedConditions.presenceOfElementLocated;
 
 @Slf4j
 @Service
 public class ShopSamsungTrackingParser extends TrackingParser {
 
-    private static final String TRACKING_URL = "https://shop.samsung.com/ru/mypage/orders";
-    private static final String ORDER_NUMBER_SELECTOR = "mat-input-0";
-    private static final String ORDER_EMAIL_SELECTOR = "mat-input-1";
     private static final String BUTTON_SELECTOR = "body > app-root > cx-storefront > main > cx-page-layout > cx-page-slot > app-orders > app-order-guest-lookup > div > div > form > div.guest-lookup__form-button-container > button";
-    private static final String ORDER_TABLE_SELECTOR = "body > app-root > cx-storefront > main > cx-page-layout > cx-page-slot > app-orders > div > div > app-order-item-guest > div > app-order-item-entry > div > div.order-item-entry__info > div.order-item-entry-summary > div.order-item-entry-summary__row.order-item-entry-status.ng-star-inserted > span";
-    private static final String SAMSUNG_HAS_SHIPPED = "dispatched";
+    private static final String IN_PROGRESS = "обрабатывается";
     private static final String MORE_INFO_BUTTON_SELECTOR = "body > app-root > cx-storefront > main > cx-page-layout > cx-page-slot > app-orders > div > div > app-order-item-guest > div > div.order-item__view-detail > button";
-    private static final String ORDER_ITEMS_H2_CLASSNAME = "order-item-entry__name";
-    private static final String ORDER_ITEMS_STATUS_CLASSNAME = "order-item-entry__order-status-text";
-    private static final String ORDER_ITEMS_QUANTITY = "div > div.order-item-entry__info > div:nth-child(3) > div:nth-child(2)";
+    private static final String ON_ITS_WAY = "в пути";
+    private static final String ORDER_EMAIL_SELECTOR = "mat-input-1";
     private static final String ORDER_ITEMS_FORMAT = "%sx <b>%s</b> %s.\n";
+    private static final String ORDER_ITEMS_H2_CLASSNAME = "order-item-entry__name";
+    private static final String ORDER_ITEMS_QUANTITY = "div > div.order-item-entry__info > div:nth-child(3) > div:nth-child(2)";
+    private static final String ORDER_ITEMS_STATUS_CLASSNAME = "order-item-entry__order-status-text";
+    private static final String ORDER_NUMBER_SELECTOR = "mat-input-0";
+    private static final String ORDER_TABLE_SELECTOR = "body > app-root > cx-storefront > main > cx-page-layout > cx-page-slot > app-orders > div > div > app-order-item-guest > div > app-order-item-entry > div > div.order-item-entry__info > div.order-item-entry-summary > div.order-item-entry-summary__row.order-item-entry-status.ng-star-inserted > span";
+    private static final String PREPARING_TO_SHIP = "подготовка доставки";
+    private static final String SAMSUNG_HAS_SHIPPED = "dispatched";
     private static final String SUMMARY_ORDER_FORMAT = "Overall status <b>%s</b>";
     private static final String SUM_TO_DELETE = "Сумма";
-    private static final String ON_ITS_WAY = "в пути";
-    private static final String IN_PROGRESS = "обрабатывается";
-    private static final String PREPARING_TO_SHIP = "подготовка доставки";
+    private static final String TRACKING_URL = "https://shop.samsung.com/ru/mypage/orders";
 
     public ShopSamsungTrackingParser(WebCheckerBot webCheckerBot, TrackingCodeRepository trackingCodeRepository) {
         super(webCheckerBot, trackingCodeRepository);
@@ -115,8 +114,8 @@ public class ShopSamsungTrackingParser extends TrackingParser {
     private void updateTrackingCodeIfSamsungHasShipped(TrackingCode trackingCode, String newStatus) {
         if (
                 newStatus.contains(String.format(SUMMARY_ORDER_FORMAT, SAMSUNG_HAS_SHIPPED)) &&
-                !newStatus.contains(IN_PROGRESS) &&
-                !newStatus.contains(PREPARING_TO_SHIP)
+                        !newStatus.contains(IN_PROGRESS) &&
+                        !newStatus.contains(PREPARING_TO_SHIP)
         ) {
             trackingCode.setProvider(CSE);
             trackingCodeRepository.save(trackingCode);

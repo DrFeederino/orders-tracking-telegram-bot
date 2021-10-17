@@ -1,7 +1,7 @@
 package com.drfeederino.telegramwebchecker.repository;
 
 import com.drfeederino.telegramwebchecker.entities.TrackingCode;
-import com.drfeederino.telegramwebchecker.entities.TrackingProvider;
+import com.drfeederino.telegramwebchecker.enums.TrackingProvider;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

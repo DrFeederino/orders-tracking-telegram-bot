@@ -1,20 +1,18 @@
-package com.drfeederino.telegramwebchecker.entities;
+package com.drfeederino.telegramwebchecker.enums;
 
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public enum BotState {
-    START("/start"),
-    DELETE("/delete"),
-    STOP("/stop"),
+
     ADD("/add"),
-    STATUS("/status");
+    DELETE("/delete"),
+    START("/start"),
+    STATUS("/status"),
+    CHANGE("/change"),
+    STOP("/stop");
 
     private final String command;
-
-    public String getCommand() {
-        return command;
-    }
 
     BotState(String command) {
         this.command = command;
@@ -32,8 +30,13 @@ public enum BotState {
     }
 
     public static BotState getEnum(String value) {
-        for(BotState v : values())
-            if(v.getCommand().equalsIgnoreCase(value)) return v;
+        for (BotState v : values())
+            if (v.getCommand().equalsIgnoreCase(value)) return v;
         return null;
     }
+
+    public String getCommand() {
+        return command;
+    }
+
 }
